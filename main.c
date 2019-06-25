@@ -36,16 +36,21 @@ struct VAR_t
   int16 cam_hight;
   float maxZanKong;//130
   int16 threasholds;  //0x57
-  int16 last_threasholds;
+  float dir_prop;   //转弯比例
+  float prop_degre_1;  //各级方向转弯比例
+  float prop_degre_2;
+  float prop_degre_3;
 }var_t;
 
-
+int8 delay_flag = 0;
 int16 LeftLine[60]; 
 int16 RightLine[60]; 
 int16 MidLine[60]; 
 int16 MidLineP = 39;
 int8 LeftLineFlag[60];
 int8 RightLineFlag[60];
+
+int16 key_temp = 0;
 
 int16 Topoint; 
 int16 Leftflog; 
@@ -55,7 +60,6 @@ int16 rightpoint1;
 float error[2];
 float speed_1,speed_2;
 //float zhankongbi_1=0,zhankongbi_2=0;
-
 
 int16 zhicha[60]={0,0,1,1,1,2,2,3,3,3,3,4,4,4,4,5,5,5,6,7,
                   8,9,10,11,11,12,12,13,14,14,15,15,16,16,17,17,18,18,19,20,
@@ -67,7 +71,7 @@ int16 rightpoint2=0;
 int16 L;
 int16 R;
 int16 Left1,Left2,Right1,Right2;
-
+int16 mid_err = 0;
 //按键
 int UI_POS = 2;
 int UI_choose_flag = 0;
@@ -112,6 +116,7 @@ void main()
     data.data_addr      = &var_t;                          //数据的地址
     data.data_size      = sizeof(var_t);                  //数据的大小
     
+    //flash_data_reset(&data);
     flash_data_init(&data);
     flash_data_load(&data);
     
@@ -150,9 +155,12 @@ void main()
 void VAR_init()
 {
   var_t.cam_hight = 27;
-  var_t.maxZanKong = 130;
+  var_t.maxZanKong = 60;
   var_t.threasholds = 0x57;
-  var_t.last_threasholds = 0x57;
+  var_t.dir_prop = 20;
+  var_t.prop_degre_1 = 3;
+  var_t.prop_degre_2 = 6;
+  var_t.prop_degre_3 = 9;
 }
 void xunxian1(void)
 {
@@ -201,9 +209,9 @@ void xunxian1(void)
               RightLine[i]=k+1;
               RightLineFlag[i]=1;
               //img[i][k+1]=150;  //用于显示边线？
-              site.x = RightLine[i];
+              /*site.x = RightLine[i];
               site.y = i;
-              lcd_point(site,BLUE);
+              lcd_point(site,BLUE);*/
               break;
             }
           }
@@ -245,13 +253,8 @@ void xunxian1(void)
     {
       MidLine[i]=(LeftLine[i]+RightLine[i])/2;
     }
+    
     MidLineP=MidLine[i];//重新切换采集行中点
-    /*showMidLine.x = MidLine[i];
-      showMidLine.y = i;
-      lcd_point(showMidLine,RED);*/
-    site.x = 0;
-    site.y = 80;
-    lcd_num_c(site,MidLine[i],RED,GBLUE);
   }
 }
 //判断左边线是否有丢线
@@ -464,9 +467,9 @@ void xunxian2(void)
           Leftflog=0;
           rightpoint1=1;
         }
-        else if(right(Left2))//右边线没有丢线  有丢线返回0 无丢线返回1
+        else if(right(Left2))//右边线没有丢线  有丢线返回0 无丢线返回1 设置Left2>10防止在图像端就会识别出来
         {
-          Leftflog=0;
+          Leftflog=0; //原来是0，现在改为1，目的是为了找到凸点后，也就是有圆环，后面就会有丢线 6月22
         }
         else
         {
@@ -477,7 +480,7 @@ void xunxian2(void)
     }
     if(Rightflog==0)
     {
-      if(RightLine[i+3]-RightLine[i]>=0&&RightLine[i-3]-RightLine[i]>=0&&RightLine[i-3]>RightLine[i+3]&&RightLine[i+3]-RightLine[i]+RightLine[i-3]-RightLine[i]>6)//先找到一个右拐点
+      if(RightLine[i+3]-RightLine[i]>=0&&RightLine[i-3]-RightLine[i]>=0&&RightLine[i-3]>RightLine[i+3]&&((RightLine[i+3]-RightLine[i])+(RightLine[i-3]-RightLine[i])>6))//先找到一个右拐点
       {
         Right1=RightLine[i+1];//右拐点   Right1 代表列   Right2  代表行
         Right2=i+1; 
@@ -488,9 +491,9 @@ void xunxian2(void)
           Rightflog=0;
           leftpoint1=1;
         }
-        else if(left(Right2))//左边没有丢线 有丢线是0 无丢线是1
+        else if(left(Right2))//左边没有丢线 有丢线是0 无丢线是1  设置Right2>10防止在图像端就会识别出来
         {
-          Rightflog=0;
+          Rightflog=0;//原来是0，现在改为1，目的是为了找到凸点后，也就是有圆环，后面就会有丢线6月22 
         }
         else
         {
@@ -699,9 +702,9 @@ void xunxian2(void)
     }
   }
 
-  /*for(i=78;i>1;i=i-1)//再次寻找顶点Top
+  /*for(i=60;i>Topoint;i--)//再次寻找顶点Top
   {
-    if(TopointFlag==0)
+   if(TopointFlag==0)
     {
       if(((img[i-1][MidLine[i]])==0x00&&MidLine[i-1]!=MidLine[i])||MidLine[i]==0||MidLine[i]==79)
       {
@@ -713,15 +716,7 @@ void xunxian2(void)
     {
       break;
     }
-  }*/
-  
-  site.x = 80;
-  site.y = 0;
-  lcd_str(site,"Topint",RED,GBLUE);
-  site.y = 20;
-  lcd_num(site,Topoint,RED,GBLUE);
-  
-  site.x = MidLine[i];
+    site.x = MidLine[i];
   site.y = i;
   lcd_point(site,RED);
       
@@ -732,8 +727,20 @@ void xunxian2(void)
   site.x = LeftLine[i];
   site.y = i;
   lcd_point(site,RED);
+  }
+  */
      
-  MidLineP=MidLine[59];//重新切换采集场中点
+  if((Leftflog != 0&&Rightflog == 0)||(Leftflog == 0&&Rightflog != 0))
+  {
+    gpio_set(PTD9,0);
+  }
+  else
+  {
+    gpio_set(PTD9,1);
+  }
+
+    MidLineP=MidLine[59];//重新切换采集场中点
+  
   //使用Topint来修改cam_height.
   
 }
@@ -768,17 +775,17 @@ float PID_Cal(float Speed,struct PID *PIDprt)
     temp = myabs(PIDprt->Err);
     if(temp>200) //变积分处理控制
     {
-    index = 0;
+      index = 0;
     }
     else if(temp<180)
     {
-    index =1;
-    PIDprt->Integral += PIDprt->Err;
+      index =1;
+      PIDprt->Integral += PIDprt->Err;
     }
     else
     {
-    index = (200-temp)/20;
-    PIDprt->Integral += PIDprt->Err;
+      index = (200-temp)/20;
+      PIDprt->Integral += PIDprt->Err;
     }
     PIDprt->Voltage = (PIDprt->Kp)*(PIDprt->Err)+index*(PIDprt->Ki)*(PIDprt->Integral) + PIDprt->Kd*(PIDprt->Err-PIDprt->Err_Last);
     PIDprt->Err_Last = PIDprt->Err;
@@ -788,51 +795,117 @@ float PID_Cal(float Speed,struct PID *PIDprt)
 
 void angle_PID(void)
 {
-  if(Topoint>var_t.cam_hight)
+    site.x = 80;
+  site.y = 0;
+  lcd_str(site,"Top",RED,GBLUE);
+  site.x = 109;
+  lcd_num(site,Topoint,RED,GBLUE);
+  site.x = 0;
+  site.y = 80;
+  lcd_str(site,"lg",RED,GBLUE);
+  site.x = 20;
+  lcd_num(site,Leftflog,RED,GBLUE);
+  site.x = 30;
+  lcd_str(site,"rg",RED,GBLUE);
+  site.x = 50;
+  lcd_num(site,Rightflog,RED,GBLUE);
+  site.x = 70;
+  lcd_str(site,"lp",RED,GBLUE);
+  site.x = 90;
+  lcd_num(site,leftpoint1,RED,GBLUE);
+  site.x = 100;
+  lcd_str(site,"rp",RED,GBLUE);
+  site.x = 120;
+  lcd_num(site,rightpoint1,RED,GBLUE);
+  
+  site.y = 100;site.x = 0;
+  lcd_str(site,"L2",RED,GBLUE);
+  site.x = 20;
+  lcd_num(site,Left2,RED,GBLUE);
+  site.x = 40;
+  lcd_num(site,Left1,RED,GBLUE);
+  site.x = 60;
+  lcd_str(site,"R2",RED,GBLUE);
+  site.x = 80;
+  lcd_num(site,Right2,RED,GBLUE);
+  site.x = 100;
+  lcd_num(site,Right1,RED,GBLUE);
+  
+  if(Leftflog==1&&Rightflog==1&&delay_flag==0)
+  {
+      ftm_pwm_duty(MOTOR_FTM,MOTOR1_PWM,0);
+      ftm_pwm_duty(MOTOR_FTM,MOTOR2_PWM,0);
+      delay_flag = 1;
+  }
+  
+  if(Topoint<var_t.cam_hight)
   {
     error[0]=(3*(MidLine[var_t.cam_hight]-40)+2*(MidLine[var_t.cam_hight+1]-40)+(MidLine[var_t.cam_hight+2]-40))/6;
   }
-  else if(Topoint<=var_t.cam_hight)
+  else if(Topoint>=var_t.cam_hight)
   {
     error[0]=(3*(MidLine[Topoint]-40)+2*(MidLine[Topoint+1]-40)+(MidLine[Topoint+2]-40))/6;
   }
           
-  if(error[0]>0)
+     if(error[0]>0)
   {
-     if(error[0]<20)
+    if(error[0]<10)
     {
-      speed_1 = PID_Cal(var_t.maxZanKong-6*error[0],MOTOR_1);
+      speed_1 = PID_Cal(var_t.maxZanKong-var_t.maxZanKong/(var_t.dir_prop+var_t.prop_degre_1)*error[0],MOTOR_1);
       speed_2 = PID_Cal(var_t.maxZanKong,MOTOR_2);
+      site.x = 80;site.y =40;
+      lcd_str(site,"D_1",RED,GBLUE);
+    }
+    else if(error[0]<20)
+    {
+      speed_1 = PID_Cal(var_t.maxZanKong-var_t.maxZanKong/(var_t.dir_prop+var_t.prop_degre_2)*error[0],MOTOR_1);
+      speed_2 = PID_Cal(var_t.maxZanKong,MOTOR_2);
+      site.x = 80;site.y =40;
+      lcd_str(site,"D_2",RED,GBLUE);
     }
     else if(error[0]>=20&&error[0]<30)
     {
-      speed_1 = PID_Cal(var_t.maxZanKong-5*error[0],MOTOR_1);
+      speed_1 = PID_Cal(var_t.maxZanKong-var_t.maxZanKong/(var_t.dir_prop+var_t.prop_degre_3)*error[0],MOTOR_1);
       speed_2 = PID_Cal(var_t.maxZanKong,MOTOR_2);
+      site.x = 80;site.y =40;
+      lcd_str(site,"D_3",RED,GBLUE);
     }
     else if(error[0]>=30&&error[0]<40)
-    {     
-      speed_1 = PID_Cal(var_t.maxZanKong-4*error[0],MOTOR_1);
+    {
+      speed_1 = PID_Cal(var_t.maxZanKong-var_t.maxZanKong/var_t.dir_prop*error[0],MOTOR_1);
       speed_2 = PID_Cal(var_t.maxZanKong,MOTOR_2);
     }
+    
   }
    else
    {
-     if(error[0]>-20)
+     if(error[0]>-10)
+     {
+       speed_1 = PID_Cal(var_t.maxZanKong,MOTOR_1);
+      speed_2 = PID_Cal(var_t.maxZanKong-var_t.maxZanKong/(var_t.dir_prop+var_t.prop_degre_1)*(-error[0]),MOTOR_2);
+            site.x = 80;site.y =40;
+      lcd_str(site,"D_1",RED,GBLUE);
+     }
+     else if(error[0]>-20)
      {
       speed_1 = PID_Cal(var_t.maxZanKong,MOTOR_1);
-      speed_2 = PID_Cal(var_t.maxZanKong-6*(-error[0]),MOTOR_2);
+      speed_2 = PID_Cal(var_t.maxZanKong-var_t.maxZanKong/(var_t.dir_prop+var_t.prop_degre_2)*(-error[0]),MOTOR_2);
+            site.x = 80;site.y =40;
+      lcd_str(site,"D_2",RED,GBLUE);
     }
     else if(error[0]>-30&&error[0]<=-20)
     {
       speed_1 = PID_Cal(var_t.maxZanKong,MOTOR_1);
-      speed_2 = PID_Cal(var_t.maxZanKong-5*(-error[0]),MOTOR_2);
+      speed_2 = PID_Cal(var_t.maxZanKong-var_t.maxZanKong/(var_t.dir_prop+var_t.prop_degre_3)*(-error[0]),MOTOR_2);
+            site.x = 80;site.y =40;
+      lcd_str(site,"D_3",RED,GBLUE);
     }
     else if(error[0]>-40&&error[0]<=-30)
     {
       speed_1 = PID_Cal(var_t.maxZanKong,MOTOR_1);
-      speed_2 = PID_Cal(var_t.maxZanKong-4*(-error[0]),MOTOR_2);//speed_2是右边的电机，speed_1是左边的电机
+      speed_2 = PID_Cal(var_t.maxZanKong-var_t.maxZanKong/var_t.dir_prop*(-error[0]),MOTOR_2);
+      //speed_2是右边的电机，speed_1是左边的电机
     }
-
    }
   if(Topoint<50)
   {
@@ -849,20 +922,21 @@ void angle_PID(void)
   
   ftm_pwm_duty(MOTOR_FTM,MOTOR1_PWM,speed_1);
   ftm_pwm_duty(MOTOR_FTM,MOTOR2_PWM,speed_2);
-  site.x = 0;
-  site.y = 100;
-  lcd_str(site,"l",RED,GBLUE);
-  site.x += 20;
-  lcd_num_c(site,(int)speed_1,RED,GBLUE);
-  site.x += 30;
-  lcd_str(site,"r",RED,GBLUE);
-  site.x += 20;
-  lcd_num_c(site,(int)speed_2,RED,GBLUE);
+  
+    site.y = 20;
+  site.x = 80;
+  lcd_str(site,"e",RED,GBLUE);
+  site.x = 100;
+  lcd_num_c(site,error[0],RED,GBLUE);
   site.y = 60;
   site.x = 0;
-  lcd_str(site,"error:",RED,GBLUE);
-  site.x = 50;
-  lcd_num_c(site,error[0],RED,GBLUE);
+  lcd_str(site,"ls",RED,GBLUE);
+  site.x += 30;
+  lcd_num_c(site,(int)speed_1,RED,GBLUE);
+  site.x += 30;
+  lcd_str(site,"rs",RED,GBLUE);
+  site.x += 30;
+  lcd_num_c(site,(int)speed_2,RED,GBLUE);
 }
 
 void PORTA_IRQHandler()
@@ -923,16 +997,20 @@ void PORTD_IRQHandler(void)
 
 void key_handler(void)
 {
-  UI_POS = 1;
-  UI_choose_flag = 0;
-  lcd_clear(GBLUE);
+  DELAY_MS(10);
+  if(key_check(KEY_B) == KEY_DOWN) //消抖
+  {
+    UI_POS = 1;
+    UI_choose_flag = 0;
+    lcd_clear(GBLUE);
     while(UI_POS != 0)
     {
+      
       if(key_check(KEY_U) == KEY_DOWN&&UI_POS ==1)
       {
         UI_choose_flag--;
-        if( UI_choose_flag < 0) UI_choose_flag = 5;
-        gpio_set(PTD9,1);
+        if( UI_choose_flag < 0) UI_choose_flag = 6;
+        
         DELAY_MS(100);  
         gpio_set(PTD9,0);
         DELAY_MS(100); 
@@ -941,8 +1019,8 @@ void key_handler(void)
       if(key_check(KEY_D) == KEY_DOWN&&UI_POS ==1) //检测key状态（带延时消抖）
       {
           UI_choose_flag++;
-          if(UI_choose_flag > 5) UI_choose_flag=5;
-        gpio_set(PTD9,1);
+          if(UI_choose_flag > 6) UI_choose_flag=0;
+          
         DELAY_MS(100);  
         gpio_set(PTD9,0);
         DELAY_MS(100); 
@@ -953,7 +1031,7 @@ void key_handler(void)
         UI_POS++;
         if(UI_POS>2) UI_POS = 2;
         else lcd_clear(GBLUE);
-        gpio_set(PTD9,1);
+        
         DELAY_MS(100);  
         gpio_set(PTD9,0);
         DELAY_MS(100); 
@@ -964,24 +1042,29 @@ void key_handler(void)
         UI_POS--;
         if(UI_POS<0) UI_POS = 0;
         else lcd_clear(GBLUE);
-        gpio_set(PTD9,1);
+
         DELAY_MS(100);  
         gpio_set(PTD9,0);
         DELAY_MS(100); 
         gpio_set(PTD9,1);
       }
       if(key_check(KEY_B) == KEY_DOWN)
-      {
+      { 
+          gpio_set(PTD9,0);
+          DELAY_MS(100);
+          gpio_set(PTD9,1);
+          DELAY_MS(50);
+          gpio_set(PTD9,0);
+          DELAY_MS(50);
+          gpio_set(PTD9,1);
+        
+        if(UI_POS == 2)
+        {
         flash_data_save(&data);
-        gpio_set(PTD9,1);
-        DELAY_MS(50);
-        gpio_set(PTD9,0);
-        DELAY_MS(50);
-        gpio_set(PTD9,1);
-        DELAY_MS(50);
-        gpio_set(PTD9,0);
-        DELAY_MS(50);
-        gpio_set(PTD9,1);
+        site.x = 20;
+        site.y = 50;
+        lcd_str(site,"data save",RED,GBLUE);
+        }
       }
       
       
@@ -989,40 +1072,72 @@ void key_handler(void)
       {
         if(UI_POS == 1)
         {site.y = 0;site.x = 0;
-        lcd_str(site,"show_camera",RED,YELLOW);
-        site.y+=20;
+        lcd_str(site,"dir_prop      ",RED,YELLOW);
+        site.y+=18;
         lcd_str(site,"cam_thresholds",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"Kd",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"Ki",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"speed",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"cam_hight",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_1  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_2  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_3  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"speed         ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"cam_hight     ",RED,GBLUE);
         }
         else if(UI_POS == 2)
         {
+          if(key_check(KEY_U) == KEY_DOWN)
+          {
+            var_t.dir_prop +=0.1;
+            
+                      key_temp = var_t.dir_prop*10;
+            key_temp %= 10;
+
+            DELAY_MS(100);  
+            gpio_set(PTD9,0);
+            DELAY_MS(100); 
+            gpio_set(PTD9,1);
+          }
+          if(key_check(KEY_D) == KEY_DOWN)
+          {
+            var_t.dir_prop += 0.1;
+            key_temp = var_t.dir_prop*10;
+            key_temp %= 10;
+            
+            DELAY_MS(100);  
+            gpio_set(PTD9,0);
+            DELAY_MS(100); 
+            gpio_set(PTD9,1);
+          }
           site.x = 0;site.y = 0;
-          lcd_str(site,"show_camera",RED,YELLOW);
+          lcd_str(site,"dir_prop",RED,GBLUE);
+          site.y = 20;
+          lcd_num(site,var_t.dir_prop,RED,GBLUE);
+          site.x = 20;
+          lcd_str(site,".",RED,GBLUE);
+          site.x = 40;
+          lcd_num(site,key_temp,RED,GBLUE);
         }
-        
       }
       else if(UI_choose_flag == 1)  //修改阈值
       {
         if(UI_POS == 1)
         {site.y = 0;site.x = 0;
-        lcd_str(site,"show_camera",RED,GBLUE);
-        site.y+=20;
+        lcd_str(site,"dir_prop      ",RED,GBLUE);
+        site.y+=18;
         lcd_str(site,"cam_thresholds",RED,YELLOW);
-        site.y+=20;
-        lcd_str(site,"Kd",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"Ki",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"speed",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"cam_hight",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_1  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_2  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_3  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"speed         ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"cam_hight     ",RED,GBLUE);
         }
         else if(UI_POS == 2)
         {
@@ -1044,72 +1159,183 @@ void key_handler(void)
           site.y = 20;
           lcd_num(site,var_t.threasholds,RED,GBLUE);
           site.y = 40;
-          lcd_str(site,"last modifi:",RED,GBLUE);
-          site.y = 60;
-          lcd_num(site,var_t.last_threasholds,RED,GBLUE);
         }
       }
-      else if(UI_choose_flag == 2)  //KD
-      {
-        if(UI_POS == 1)
-        {
-        site.y = 0;site.x = 0;
-        lcd_str(site,"show_camera",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"cam_thresholds",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"Kd",RED,YELLOW);
-        site.y+=20;
-        lcd_str(site,"Ki",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"speed",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"cam_hight",RED,GBLUE);
-        }
-        else if(UI_POS == 2)
-        {
-          site.y = 0;site.x = 0;
-          lcd_str(site,"Kd",RED,GBLUE);
-        }
-      }
-      else if(UI_choose_flag == 3)  //KI
+      else if(UI_choose_flag == 2)  //PROP_degre_1
       {
         if(UI_POS == 1)
         {site.y = 0;site.x = 0;
-        lcd_str(site,"show_camera",RED,GBLUE);
-        site.y+=20;
+        lcd_str(site,"dir_prop      ",RED,GBLUE);
+        site.y+=18;
         lcd_str(site,"cam_thresholds",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"Kd",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"Ki",RED,YELLOW);
-        site.y+=20;
-        lcd_str(site,"speed",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"cam_hight",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_1  ",RED,YELLOW);
+        site.y+=18;
+        lcd_str(site,"prop_degre_2  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_3  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"speed         ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"cam_hight     ",RED,GBLUE);
         }
         else if(UI_POS == 2)
         {
-          site.x = 0;site.y = 0;
-          lcd_str(site,"Ki config",RED,GBLUE);
+          if(key_check(KEY_U) == KEY_DOWN)
+          {
+            var_t.prop_degre_1 +=0.1;
+             key_temp = var_t.prop_degre_1*10;
+            key_temp %= 10;
+
+            DELAY_MS(100);  
+            gpio_set(PTD9,0);
+            DELAY_MS(100); 
+            gpio_set(PTD9,1);
+          }
+          if(key_check(KEY_D) == KEY_DOWN)
+          {
+            var_t.prop_degre_1 -= 0.1;
+            key_temp = var_t.prop_degre_1*10;
+            key_temp %= 10;
+
+            DELAY_MS(100);  
+            gpio_set(PTD9,0);
+            DELAY_MS(100); 
+            gpio_set(PTD9,1);
+          }
+               site.x = 0;
+            site.y = 0;
+            lcd_str(site,"prop_degre_1",RED,GBLUE);
+            site.y = 20;
+            lcd_num(site,var_t.prop_degre_1,RED,GBLUE);
+          site.x = 20;
+          lcd_str(site,".",RED,GBLUE);
+          site.x = 40;
+          lcd_num(site,key_temp,RED,GBLUE);
         }
       }
-      else if(UI_choose_flag == 4)  //SPEED
+      else if(UI_choose_flag == 3)  //prop_degre_2
       {
         if(UI_POS == 1)
-        {
-        site.y = 0;site.x = 0;
-        lcd_str(site,"show_camera",RED,GBLUE);
-        site.y+=20;
+        {site.y = 0;site.x = 0;
+        lcd_str(site,"dir_prop      ",RED,GBLUE);
+        site.y+=18;
         lcd_str(site,"cam_thresholds",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"Kd",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"Ki",RED,GBLUE);
-        site.y+=20;
-        lcd_str(site,"speed",RED,YELLOW);
-        site.y+=20;
-        lcd_str(site,"cam_hight",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_1  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_2  ",RED,YELLOW);
+        site.y+=18;
+        lcd_str(site,"prop_degre_3  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"speed         ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"cam_hight     ",RED,GBLUE);
+        }
+        else if(UI_POS == 2)
+        {
+         if(key_check(KEY_U) == KEY_DOWN)
+          {
+            var_t.prop_degre_2 +=0.1;
+            key_temp = var_t.prop_degre_2*10;
+            key_temp %= 10;
+            DELAY_MS(100);  
+            gpio_set(PTD9,0);
+            DELAY_MS(100); 
+            gpio_set(PTD9,1);
+          }
+          if(key_check(KEY_D) == KEY_DOWN)
+          {
+            var_t.prop_degre_2 -=0.1;
+                        key_temp = var_t.prop_degre_2*10;
+            key_temp %= 10;
+            
+            DELAY_MS(100);  
+            gpio_set(PTD9,0);
+            DELAY_MS(100); 
+            gpio_set(PTD9,1);
+          }
+            site.x = 0;
+            site.y = 0;
+            lcd_str(site,"prop_degre_2",RED,GBLUE);
+            site.y = 20;
+            lcd_num(site,var_t.prop_degre_2,RED,GBLUE);
+            site.x = 20;
+          lcd_str(site,".",RED,GBLUE);
+          site.x = 40;
+          lcd_num(site,key_temp,RED,GBLUE);
+        }
+      }
+      else if(UI_choose_flag == 4)  //prop_degre_3
+      {
+        if(UI_POS == 1)
+        {site.y = 0;site.x = 0;
+        lcd_str(site,"dir_prop      ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"cam_thresholds",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_1  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_2  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_3  ",RED,YELLOW);
+        site.y+=18;
+        lcd_str(site,"speed         ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"cam_hight     ",RED,GBLUE);
+        }
+        else if(UI_POS == 2)
+        {
+         if(key_check(KEY_U) == KEY_DOWN)
+          {
+            var_t.prop_degre_3 += 0.1;
+                       key_temp = var_t.prop_degre_3*10;
+            key_temp %= 10;
+            
+            DELAY_MS(100);  
+            gpio_set(PTD9,0);
+            DELAY_MS(100); 
+            gpio_set(PTD9,1);
+          }
+          if(key_check(KEY_D) == KEY_DOWN)
+          {
+            var_t.prop_degre_3 -= 0.1;
+                       key_temp = var_t.prop_degre_3*10;
+            key_temp %= 10;
+            
+            DELAY_MS(100);  
+            gpio_set(PTD9,0);
+            DELAY_MS(100); 
+            gpio_set(PTD9,1);
+          }
+            site.x = 0;
+            site.y = 0;
+            lcd_str(site,"prop_degre_3",RED,GBLUE);
+            site.y = 20;
+            lcd_num(site,var_t.prop_degre_3,RED,GBLUE);
+                      site.x = 20;
+          lcd_str(site,".",RED,GBLUE);
+          site.x = 40;
+          lcd_num(site,key_temp,RED,GBLUE);
+        }
+      }
+      else if(UI_choose_flag == 5) //speed
+      {
+        if(UI_POS == 1)
+        {site.y = 0;site.x = 0;
+        lcd_str(site,"dir_prop      ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"cam_thresholds",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_1  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_2  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_3  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"speed         ",RED,YELLOW);
+        site.y+=18;
+        lcd_str(site,"cam_hight     ",RED,GBLUE);
         }
         else if(UI_POS == 2)
         {
@@ -1129,35 +1355,36 @@ void key_handler(void)
           lcd_num(site,(int)var_t.maxZanKong,RED,GBLUE);
         }
       }
-      else if(UI_choose_flag == 5)   //CAM_HIGHT
+      else if(UI_choose_flag == 6)  //cam_height
       {
         if(UI_POS == 1)
-        {
-           site.y = 0;site.x = 0;
-          lcd_str(site,"show_camera",RED,GBLUE);
-          site.y+=20;
-          lcd_str(site,"cam_thresholds",RED,GBLUE);
-          site.y+=20;
-          lcd_str(site,"Kd",RED,GBLUE);
-          site.y+=20;
-          lcd_str(site,"Ki",RED,GBLUE);
-          site.y+=20;
-          lcd_str(site,"speed",RED,GBLUE);
-          site.y+=20;
-          lcd_str(site,"cam_hight",RED,YELLOW);
+        {site.y = 0;site.x = 0;
+        lcd_str(site,"dir_prop      ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"cam_thresholds",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_1  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_2  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"prop_degre_3  ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"speed         ",RED,GBLUE);
+        site.y+=18;
+        lcd_str(site,"cam_hight     ",RED,YELLOW);
         }
         else if(UI_POS == 2)
         {
           if(key_check(KEY_U) == KEY_DOWN)
           {
               var_t.cam_hight++;
-              if( UI_choose_flag >100) UI_choose_flag = 100;
+              
               DELAY_MS(200);
           }
           if(key_check(KEY_D) == KEY_DOWN) //检测key状态（带延时消抖）
           {
               var_t.cam_hight--;
-          if(UI_choose_flag < 5) UI_choose_flag=5;
+
                 DELAY_MS(200);
           }
           site.y = 0;site.x = 0;
@@ -1167,10 +1394,9 @@ void key_handler(void)
         }
       }
     }
-                   //通过串口助手查看，提示按键按下
+     //通过串口助手查看，提示按键按下
     //调整这里的时间，会发现，时间越长，
                                         //快速双击，就没法识别第二次采集
-    site.y = 0;site.x = 0;
     lcd_clear(GBLUE);
-    
+  }  
 }
